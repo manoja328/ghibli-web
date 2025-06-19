@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
+    <title>Ghibli Style Classifier</title>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+
+        #preview {
+            max-width: 400px;
+            margin: 20px auto;
+        }
+
+        #result {
+            margin: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .ghibli {
+            background-color: #90EE90;
+        }
+
+        .non-ghibli {
+            background-color: #FFB6C1;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Ghibli Style Classifier</h1>
+    <input type="file" id="imageInput" accept="image/*">
+    <img id="preview" style="display: none;">
+    <div id="result"></div>
+
+    <script>
+        let session = null;
+        // const modelPath = 'ghibli_classifier.onnx';
+        const modelPath = 'model_pt.onnx';
+
+        // Load the ONNX model
+        async function loadModel() {
+            try {
+                session = await ort.InferenceSession.create(modelPath);
+                console.log('Model loaded successfully');
+            } catch (e) {
+                console.error('Error loading model:', e);
+            }
+        }
+
+        // Preprocess image for model input
+        function preprocessImage(imageElement) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 224;
+            canvas.height = 224;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(imageElement, 0, 0, 224, 224);
+
+            const imageData = ctx.getImageData(0, 0, 224, 224).data;
+
+            const mean = [0.485, 0.456, 0.406];
+            const std = [0.229, 0.224, 0.225];
+
+            const input = new Float32Array(1 * 3 * 224 * 224);
+
+            for (let i = 0; i < 224 * 224; i++) {
+                const r = imageData[i * 4] / 255;
+                const g = imageData[i * 4 + 1] / 255;
+                const b = imageData[i * 4 + 2] / 255;
+
+                input[i] = (r - mean[0]) / std[0];                // R channel
+                input[i + 224 * 224] = (g - mean[1]) / std[1];    // G channel
+                input[i + 2 * 224 * 224] = (b - mean[2]) / std[2]; // B channel
+            }
+
+            return input;
+        }
+
+        // Run inference
+        async function runInference(imageElement) {
+            if (!session) {
+                console.error('Model not loaded');
+                return;
+            }
+
+            try {
+                const input = preprocessImage(imageElement);
+                const tensor = new ort.Tensor('float32', input, [1, 3, 224, 224]);
+                const results = await session.run({ input: tensor });
+                const prediction = results.output.data[0];
+
+                const resultDiv = document.getElementById('result');
+                resultDiv.textContent = `Prediction: ${prediction < 0.5 ? 'Ghibli' : 'Non-Ghibli'} (Confidence: ${(prediction < 0.5 ? (1 - prediction) : prediction).toFixed(2)})`;
+                resultDiv.className = prediction < 0.5 ? 'ghibli' : 'non-ghibli';
+            } catch (e) {
+                console.error('Error running inference:', e);
+            }
+        }
+
+        // Handle file input
+        document.getElementById('imageInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    const preview = document.getElementById('preview');
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                    preview.onload = function () {
+                        runInference(preview);
+                    };
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Load model when page loads
+        loadModel();
+    </script>
+</body>
+
+</html>
